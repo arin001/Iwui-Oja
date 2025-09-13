@@ -12,6 +12,7 @@ import 'package:prime_web/ui/screens/setting_screens/aboutUs_screen.dart';
 import 'package:prime_web/ui/screens/setting_screens/contactUs_screen.dart';
 import 'package:prime_web/ui/screens/setting_screens/privacyPolicy_screen.dart';
 import 'package:prime_web/ui/screens/setting_screens/term_and_condition.dart';
+import 'package:prime_web/offline/offline_library_page.dart';
 import 'package:prime_web/ui/widgets/glassmorphism_container.dart';
 import 'package:prime_web/ui/widgets/widgets.dart';
 import 'package:prime_web/utils/constants.dart';
@@ -65,6 +66,16 @@ class _SettingsScreenState extends State<SettingsScreen>
                   title: CustomStrings.darkMode,
                   trailing: ChangeThemeButtonWidget(),
                 ),
+
+                // Offline Library
+                SettingTile(
+                  leadingIcon: CustomIcons.homeIcon(Theme.of(context).brightness),
+                  title: 'Offline Library',
+                  onTap: () {
+                    _onPressed(const OfflineLibraryPage());
+                  },
+                ),
+
                 // About us
                 SettingTile(
                   leadingIcon: CustomIcons.aboutUsIcon,

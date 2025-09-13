@@ -17,6 +17,7 @@ import 'package:prime_web/provider/navigation_bar_provider.dart';
 import 'package:prime_web/provider/theme_provider.dart';
 import 'package:prime_web/ui/widgets/widgets.dart';
 import 'package:prime_web/utils/constants.dart';
+import 'package:prime_web/offline/download_manager.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -480,6 +481,7 @@ class _LoadWebViewState extends State<LoadWebView>
                         if (action == 'download') {
                           String fileUrl = data['url'] ?? '';
                           String fileName = data['filename'] ?? 'video.mp4';
+                          String title = data['title'] ?? fileName;
 
                           if (fileUrl.isEmpty) {
                             print('Download failed: No URL provided');
@@ -487,37 +489,49 @@ class _LoadWebViewState extends State<LoadWebView>
                           }
 
                           try {
-                            // 1. Request permission (Android 10 and below)
-                            if (Platform.isAndroid) {
-                              if (await _needsStoragePermission()) {
-                                var status = await Permission.storage.request();
-                                if (!status.isGranted) {
-                                  print('Permission denied');
-                                  return;
-                                }
-                              }
+                            // Request storage permission if needed
+                            bool hasPermission = await _requestStoragePermission();
+                            if (!hasPermission) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Storage permission required for downloads')),
+                              );
+                              return;
                             }
 
-                            // 2. Get private app folder
-                            Directory appDir = await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
-                            String savePath = "${appDir.path}/$fileName";
+                            // Use DownloadManager for private storage download
+                            final dm = DownloadManager();
+                            await dm.init();
 
-                            // 3. Download file
-                            Dio dio = Dio();
-                            await dio.download(
-                              fileUrl,
-                              savePath,
-                              onReceiveProgress: (count, total) {
-                                if (total != -1) {
-                                  print("Download progress: ${(count / total * 100).toStringAsFixed(0)}%");
+                            // Generate unique asset ID
+                            String assetId = DateTime.now().millisecondsSinceEpoch.toString();
+
+                            // Start download using DownloadManager
+                            dm.download(
+                              assetId: assetId,
+                              title: title,
+                              url: Uri.parse(fileUrl),
+                            ).listen(
+                              (progress) {
+                                print('Download progress: ${(progress * 100).toInt()}%');
+                                if (progress >= 1.0) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Download completed: $title')),
+                                  );
                                 }
+                              },
+                              onError: (error) {
+                                print('Download error: $error');
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Download failed: $error')),
+                                );
                               },
                             );
 
-                            print('Download complete: $savePath');
-
                           } catch (e) {
                             print('Download error: $e');
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Download failed: $e')),
+                            );
                           }
                         }
                       }
@@ -610,6 +624,54 @@ class _LoadWebViewState extends State<LoadWebView>
                     ),
                   )
                       .catchError((Object e) => debugPrint('$e'));
+                }
+
+                // Inject download button handler for downloads page
+                if (url.toString().contains('/downloads/')) {
+                  await webViewController!.evaluateJavascript(
+                    source: """
+                    javascript:(function() {
+                      // Function to handle download clicks
+                      function handleDownloadClick(event) {
+                        event.preventDefault();
+                        var link = event.target.closest('a');
+                        if (link && link.href) {
+                          var url = link.href;
+                          var filename = link.download || url.split('/').pop() || 'download.mp4';
+                          var title = link.textContent.trim() || link.title || filename;
+
+                          // Call Flutter handler
+                          if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+                            window.flutter_inappwebview.callHandler('App', {
+                              action: 'download',
+                              url: url,
+                              filename: filename,
+                              title: title
+                            });
+                          }
+                        }
+                        return false;
+                      }
+
+                      // Find all download links and buttons
+                      var downloadLinks = document.querySelectorAll('a[href*=".mp4"], a[href*=".avi"], a[href*=".mov"], a[href*=".mkv"], button[onclick*="download"], a[download]');
+                      downloadLinks.forEach(function(link) {
+                        link.addEventListener('click', handleDownloadClick, true);
+                        link.style.backgroundColor = '#4CAF50';
+                        link.style.color = 'white';
+                        link.style.padding = '10px';
+                        link.style.borderRadius = '5px';
+                        link.style.textDecoration = 'none';
+                        link.style.display = 'inline-block';
+                        link.style.margin = '5px';
+                      });
+
+                      console.log('Download handlers attached to ' + downloadLinks.length + ' elements');
+                    })();
+                    """,
+                  ).then(
+                    (_) => debugPrint('Download handlers injected'),
+                  ).catchError((Object e) => debugPrint('Error injecting download handlers: $e'));
                 }
               },
               onReceivedError: (controller, request, error) async {

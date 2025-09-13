@@ -12,7 +12,7 @@ export 'strings.dart';
 const String androidPackageName = 'com.onlinecourse.pheichon';
 
 /// DO NOT ADD / AT THE END OF URL
-String baseurl = 'https://goldenrod-hippopotamus-556850.hostingersite.com';
+String baseurl = 'https://darkorange-sardine-183079.hostingersite.com';
 
 String databaseUrl = '$baseurl/api/';
 
@@ -41,7 +41,7 @@ String openAdId = Platform.isAndroid ? '' : '';
 const String notificationIcon = '@mipmap/ic_launcher_squircle';
 
 //turn on/off enable storage permission
-const bool isStoragePermissionEnabled = false;
+const bool isStoragePermissionEnabled = true;
 
 List<Map<String, String>> navigationTabs(BuildContext context) => [
       {
