@@ -1,0 +1,25 @@
+# Flutter/Dart/Pub
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+
+# Build
+build/
+ios/Pods/
+android/.gradle/
+android/app/build/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Secrets
+*.jks
+*.keystore
+*.pem
+*.p12
+*.key
+*.crt
+*.env
