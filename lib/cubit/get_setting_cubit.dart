@@ -67,21 +67,35 @@ class GetSettingCubit extends Cubit<GetSettingState> {
         GetSettingStateInSussess(useAuthtoken: false, settingdata: result),
       );
     } catch (e) {
-      GetSettingInError(error: e.toString());
+      emit(GetSettingInError(error: e.toString()));
     }
     return GetSettingModel.fromJson({});
   }
 
   String primaryUrl() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    String url = data.primaryUrl.toString();
-    return url;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        String url = data.primaryUrl.toString();
+        return url;
+      }
+    } catch (e) {
+      print('Error getting primary URL: $e');
+    }
+    return baseurl; // Fallback to base URL
   }
 
   String secondaryUrl() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    String url = data.secondaryUrl.toString();
-    return url;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        String url = data.secondaryUrl.toString();
+        return url;
+      }
+    } catch (e) {
+      print('Error getting secondary URL: $e');
+    }
+    return '$baseurl/downloads/'; // Fallback to downloads page
   }
 
   Color hexToColor(String hexString, {String alphaChannel = 'FF'}) {
@@ -89,28 +103,56 @@ class GetSettingCubit extends Cubit<GetSettingState> {
   }
 
   Color loadercolor() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    String loadercolor = data.loaderColor.toString();
-    Color loadercolorr = hexToColor(loadercolor);
-    return loadercolorr;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        String loadercolor = data.loaderColor.toString();
+        Color loadercolorr = hexToColor(loadercolor);
+        return loadercolorr;
+      }
+    } catch (e) {
+      print('Error getting loader color: $e');
+    }
+    return const Color(0xFF4CAF50); // Default green color
   }
 
   bool onboardingStatus() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    bool status = (data.onboardingScreen)!;
-    return status;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        bool status = (data.onboardingScreen)!;
+        return status;
+      }
+    } catch (e) {
+      print('Error getting onboarding status: $e');
+    }
+    return false; // Default to not showing onboarding
   }
 
   bool pullToRefresh() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    bool status = (data.pullToRefresh)!;
-    return status;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        bool status = (data.pullToRefresh)!;
+        return status;
+      }
+    } catch (e) {
+      print('Error getting pull to refresh status: $e');
+    }
+    return true; // Default to allowing pull to refresh
   }
 
   String onbordingStyle() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    String style = data.style.toString();
-    return style;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        String style = data.style.toString();
+        return style;
+      }
+    } catch (e) {
+      print('Error getting onboarding style: $e');
+    }
+    return 'style1'; // Default style
   }
 
   // bool showAppDrawer() {
@@ -120,15 +162,29 @@ class GetSettingCubit extends Cubit<GetSettingState> {
   // }
 
   bool showExitPopupScreen() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    bool status = (data.exitPopupScreen)!;
-    return status;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        bool status = (data.exitPopupScreen)!;
+        return status;
+      }
+    } catch (e) {
+      print('Error getting exit popup status: $e');
+    }
+    return true; // Default to showing exit popup
   }
 
   String maintenanceMode() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    String mode = data.appMaintenanceMode.toString();
-    return mode;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        String mode = data.appMaintenanceMode.toString();
+        return mode;
+      }
+    } catch (e) {
+      print('Error getting maintenance mode: $e');
+    }
+    return '0'; // Default to no maintenance mode
   }
 
   String forceUpdate() {
@@ -176,44 +232,93 @@ class GetSettingCubit extends Cubit<GetSettingState> {
   }
 
   bool showInterstitialAds() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    bool status = (data.interstitialAdStatus)!;
-    return status;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        bool status = (data.interstitialAdStatus)!;
+        return status;
+      }
+    } catch (e) {
+      print('Error getting interstitial ads status: $e');
+    }
+    return false; // Default to not showing ads
   }
 
   bool showBannerAds() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    bool status = (data.bannerAdStatus)!;
-    return status;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        bool status = (data.bannerAdStatus)!;
+        return status;
+      }
+    } catch (e) {
+      print('Error getting banner ads status: $e');
+    }
+    return false; // Default to not showing ads
   }
 
   bool showOpenAds() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    bool status = (data.admobAdStatus)!;
-    return status;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        bool status = (data.admobAdStatus)!;
+        return status;
+      }
+    } catch (e) {
+      print('Error getting open ads status: $e');
+    }
+    return false; // Default to not showing ads
   }
 
   bool hideHeader() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    bool status = (data.hideHeader!);
-    return status;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        bool status = (data.hideHeader!);
+        return status;
+      }
+    } catch (e) {
+      print('Error getting hide header status: $e');
+    }
+    return false; // Default to not hiding header
   }
 
   bool hideFooter() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    bool status = (data.hideFooter!);
-    return status;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        bool status = (data.hideFooter!);
+        return status;
+      }
+    } catch (e) {
+      print('Error getting hide footer status: $e');
+    }
+    return false; // Default to not hiding footer
   }
 
   String firstBottomNavWeb() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    String text = data.firstBottomNavWeb.toString();
-    return text;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        String text = data.firstBottomNavWeb.toString();
+        return text;
+      }
+    } catch (e) {
+      print('Error getting first bottom nav text: $e');
+    }
+    return 'Home'; // Default label
   }
 
   String secondBottomNavWeb() {
-    GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-    String text = data.secondBottomNavWeb.toString();
-    return text;
+    try {
+      if (state is GetSettingStateInSussess) {
+        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
+        String text = data.secondBottomNavWeb.toString();
+        return text;
+      }
+    } catch (e) {
+      print('Error getting second bottom nav text: $e');
+    }
+    return 'Downloads'; // Default label
   }
 }

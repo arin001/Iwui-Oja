@@ -55,11 +55,20 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _initializeSettingsAndOnboarding() async {
-    await Future.wait([
-      _getSettingCubit.getSetting(),
-      _getOnbordingCubit.getOnboardingScreens(),
-      context.read<SetFcmCubit>().setFcm(),
-    ]);
+    try {
+      await Future.wait([
+        _getSettingCubit.getSetting(),
+        _getOnbordingCubit.getOnboardingScreens(),
+        context.read<SetFcmCubit>().setFcm(),
+      ]);
+    } catch (e) {
+      // If API calls fail (which they will for a regular website), skip them
+      print('API calls failed, proceeding without server data: $e');
+      // Set default values and proceed
+      isSettingLoaded = true;
+      isOnboardingLoaded = true;
+      _checkBothLoaded();
+    }
   }
 
   void _checkBothLoaded() {
@@ -71,6 +80,10 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> startTimer() async {
     final pref = await SharedPreferences.getInstance();
     final state = _getSettingCubit.state;
+
+    // Add a small delay to show splash screen briefly
+    await Future.delayed(const Duration(seconds: 2));
+
     if (state is GetSettingStateInSussess) {
       final maintenanceMode = state.settingdata.appMaintenanceMode;
       if (maintenanceMode == "1") {
@@ -101,8 +114,17 @@ class _SplashScreenState extends State<SplashScreen> {
           );
         }
       }
-    } else if (state is GetSettingInError) {
-      print('Error fetching settings: ${state.error}');
+    } else {
+      // If settings failed to load or API doesn't exist, go directly to main screen
+      print('Settings not loaded or API unavailable, proceeding to main screen');
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => MyHomePage(
+            webUrl: webInitialUrl,
+          ),
+        ),
+      );
     }
   }
 
@@ -136,9 +158,11 @@ class _SplashScreenState extends State<SplashScreen> {
                 if (state is GetSettingStateInSussess) {
                   isSettingLoaded = true;
                   _checkBothLoaded();
-                }
-                if (state is GetSettingInError) {
+                } else if (state is GetSettingInError) {
                   print('Error fetching settings: ${state.error}');
+                  // Even on error, mark as loaded to proceed
+                  isSettingLoaded = true;
+                  _checkBothLoaded();
                 }
               }),
               BlocListener<GetOnboardingCubit, GetOnboardingState>(
@@ -146,9 +170,11 @@ class _SplashScreenState extends State<SplashScreen> {
                 if (state is GetOnboardingStateSuccess) {
                   isOnboardingLoaded = true;
                   _checkBothLoaded();
-                }
-                if (state is GetOnboardingError) {
+                } else if (state is GetOnboardingError) {
                   print('Error fetching onboarding: ${state.error}');
+                  // Even on error, mark as loaded to proceed
+                  isOnboardingLoaded = true;
+                  _checkBothLoaded();
                 }
               }),
             ],
