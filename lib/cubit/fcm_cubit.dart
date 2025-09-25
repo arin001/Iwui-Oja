@@ -35,7 +35,7 @@ class SetFcmCubit extends Cubit<SetFcmState> {
         SetFcmStateInSussess(useAuthtoken: false, setFcm: setFcmKey),
       );
     } catch (e) {
-      SetFcmInError(error: e.toString());
+      emit(SetFcmInError(error: e.toString()));
     }
   }
 }

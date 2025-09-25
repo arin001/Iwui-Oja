@@ -34,7 +34,7 @@ class GetOnboardingCubit extends Cubit<GetOnboardingState> {
         GetOnboardingStateSuccess(onBoardingData: result),
       );
     } catch (e) {
-      GetOnboardingError(error: e.toString());
+      emit(GetOnboardingError(error: e.toString()));
     }
   }
 

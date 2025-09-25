@@ -15,7 +15,6 @@ import 'package:prime_web/provider/navigation_bar_provider.dart';
 import 'package:prime_web/provider/theme_provider.dart';
 import 'package:prime_web/ui/screens/setting_screens/settings_screen.dart';
 import 'package:prime_web/ui/screens/splash_screen.dart';
-import 'package:prime_web/ui/widgets/admob_service.dart';
 import 'package:prime_web/utils/constants.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -72,7 +71,6 @@ Future<void> main() async {
   );
 
   await Firebase.initializeApp();
-  AdMobService.initialize();
 
   const counter = 0;
 

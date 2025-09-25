@@ -12,7 +12,7 @@ export 'strings.dart';
 const String androidPackageName = 'com.onlinecourse.pheichon';
 
 /// DO NOT ADD / AT THE END OF URL
-String baseurl = 'https://darkorange-sardine-183079.hostingersite.com';
+String baseurl = 'https://goldenrod-hippopotamus-556850.hostingersite.com';
 
 String databaseUrl = '$baseurl/api/';
 
@@ -32,10 +32,6 @@ String storeUrl = Platform.isAndroid ? '' : '';
 
 bool showBottomNavigationBar = true;
 
-/// Ad Ids
-String interstitialAdId = Platform.isAndroid ? '' : '';
-String bannerAdId = Platform.isAndroid ? '' : '';
-String openAdId = Platform.isAndroid ? '' : '';
 
 //icon to set when get firebase messages
 const String notificationIcon = '@mipmap/ic_launcher_squircle';

@@ -24,7 +24,6 @@ dependencies:
     sdk: flutter
   flutter_svg: ^2.0.10
   flutter_widget_from_html: ^0.15.2
-  google_mobile_ads: ^5.1.0
   http: ^1.2.2
   in_app_review: ^2.0.9
   internet_connection_checker: ^1.0.0+1
@@ -40,6 +39,7 @@ dependencies:
   # ✅ Added for offline download/playback features
   path: ^1.9.0
   video_player: ^2.9.1
+  sqflite: ^2.4.1
 
 
 

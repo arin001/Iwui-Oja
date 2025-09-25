@@ -18,6 +18,8 @@ import 'package:prime_web/provider/theme_provider.dart';
 import 'package:prime_web/ui/widgets/widgets.dart';
 import 'package:prime_web/utils/constants.dart';
 import 'package:prime_web/offline/download_manager.dart';
+import 'package:prime_web/offline/database_helper.dart';
+import 'package:prime_web/offline/offline_library_page.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -441,18 +443,147 @@ class _LoadWebViewState extends State<LoadWebView>
     webViewController?.evaluateJavascript(source: jsCode);
   }
 
+  // Extract filename from URL
+  String _extractFilename(String url) {
+    try {
+      final uri = Uri.parse(url);
+      final pathSegments = uri.pathSegments;
+      if (pathSegments.isNotEmpty) {
+        return pathSegments.last;
+      }
+    } catch (e) {
+      // Fallback: extract from URL string
+      final parts = url.split('/');
+      if (parts.isNotEmpty) {
+        return parts.last.split('?').first; // Remove query parameters
+      }
+    }
+    return 'download.mp4';
+  }
+
+  // Handle download payload from JavaScript or URL blocking
+  Future<void> handleDownloadPayload(Map<String, dynamic> payload) async {
+    final url = payload['url'] ?? payload['downloadUrl'];
+    if (url == null || url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid download URL')),
+      );
+      return;
+    }
+
+    final filename = payload['filename'] ?? _extractFilename(url.toString());
+
+    try {
+      // Request storage permission if needed
+      bool hasPermission = await _requestStoragePermission();
+      if (!hasPermission) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Storage permission required for downloads')),
+        );
+        return;
+      }
+
+      // Get app documents directory
+      final appDir = await getApplicationDocumentsDirectory();
+      final downloadsDir = Directory('${appDir.path}/downloads');
+      if (!await downloadsDir.exists()) {
+        await downloadsDir.create(recursive: true);
+      }
+
+      final savePath = '${downloadsDir.path}/$filename';
+
+      // Check if file already exists
+      final file = File(savePath);
+      if (await file.exists()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('File already exists: $filename')),
+        );
+        return;
+      }
+
+      // Insert record into database
+      final dbHelper = DatabaseHelper();
+      await dbHelper.insertDownloadRecord({
+        'filename': filename,
+        'path': savePath,
+        'url': url,
+        'status': 'downloading',
+        'downloaded_at': DateTime.now().toIso8601String(),
+      });
+
+      // Show download started message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Download started: $filename')),
+      );
+
+      // Start download
+      final dio = Dio();
+      await dio.download(
+        url,
+        savePath,
+        onReceiveProgress: (received, total) async {
+          if (total > 0) {
+            final progress = (received / total * 100).round();
+
+            // Update database with progress
+            await dbHelper.updateDownload(filename, {
+              'status': progress >= 100 ? 'completed' : 'downloading',
+              'progress': progress,
+            });
+
+            // Notify listeners (this will update the UI)
+            // We can add a callback here if needed
+          }
+        },
+      );
+
+      // Update final status
+      await dbHelper.updateDownload(filename, {
+        'status': 'completed',
+        'progress': 100,
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Download completed: $filename')),
+      );
+
+    } catch (e) {
+      print('Download error: $e');
+
+      // Update status to failed
+      final dbHelper = DatabaseHelper();
+      await dbHelper.updateDownload(filename, {
+        'status': 'failed',
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Download failed: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     _validURL = Uri.tryParse(widget.url)?.isAbsolute ?? false;
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, __) async {
-        if (didPop) return;
-        if (await _exitApp(context)) {
-          Navigator.of(context).pop();
+    return WillPopScope(
+      onWillPop: () async {
+        if (webViewController != null) {
+          if (await webViewController!.canGoBack()) {
+            webViewController!.goBack();
+            return false; // Don't exit app, just go back in webview
+          }
         }
+        return true; // Exit app if can't go back
       },
-      child: Stack(
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, __) async {
+          if (didPop) return;
+          if (await _exitApp(context)) {
+            Navigator.of(context).pop();
+          }
+        },
+        child: Stack(
         children: [
           if (_validURL)
             InAppWebView(
@@ -472,6 +603,15 @@ class _LoadWebViewState extends State<LoadWebView>
 
                 // Add JavaScript handler for download
                 webViewController?.addJavaScriptHandler(
+                    handlerName: 'downloadHandler',
+                    callback: (args) async {
+                      if (args.isNotEmpty && args[0] is Map) {
+                        await handleDownloadPayload(args[0]);
+                      }
+                    }
+                );
+
+                webViewController?.addJavaScriptHandler(
                     handlerName: 'App',
                     callback: (args) async {
                       if (args.isNotEmpty && args[0] is Map) {
@@ -483,8 +623,26 @@ class _LoadWebViewState extends State<LoadWebView>
                           String fileName = data['filename'] ?? 'video.mp4';
                           String title = data['title'] ?? fileName;
 
+                          // Generate unique asset ID
+                          String assetId = DateTime.now().millisecondsSinceEpoch.toString();
+
+                          // Reply immediately to JS
+                          webViewController?.evaluateJavascript(source: '''
+                            window.postMessage({
+                              status: 'accepted',
+                              assetId: '$assetId'
+                            }, '*');
+                          ''');
+
                           if (fileUrl.isEmpty) {
                             print('Download failed: No URL provided');
+                            webViewController?.evaluateJavascript(source: '''
+                              window.postMessage({
+                                status: 'error',
+                                assetId: '$assetId',
+                                reason: 'No URL provided'
+                              }, '*');
+                            ''');
                             return;
                           }
 
@@ -495,6 +653,13 @@ class _LoadWebViewState extends State<LoadWebView>
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(content: Text('Storage permission required for downloads')),
                               );
+                              webViewController?.evaluateJavascript(source: '''
+                                window.postMessage({
+                                  status: 'error',
+                                  assetId: '$assetId',
+                                  reason: 'Storage permission denied'
+                                }, '*');
+                              ''');
                               return;
                             }
 
@@ -502,29 +667,16 @@ class _LoadWebViewState extends State<LoadWebView>
                             final dm = DownloadManager();
                             await dm.init();
 
-                            // Generate unique asset ID
-                            String assetId = DateTime.now().millisecondsSinceEpoch.toString();
-
                             // Start download using DownloadManager
-                            dm.download(
+                            await dm.startDownload(
                               assetId: assetId,
                               title: title,
                               url: Uri.parse(fileUrl),
-                            ).listen(
-                              (progress) {
-                                print('Download progress: ${(progress * 100).toInt()}%');
-                                if (progress >= 1.0) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Download completed: $title')),
-                                  );
-                                }
-                              },
-                              onError: (error) {
-                                print('Download error: $error');
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Download failed: $error')),
-                                );
-                              },
+                            );
+
+                            // Show download started message
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Download started: $title')),
                             );
 
                           } catch (e) {
@@ -532,6 +684,13 @@ class _LoadWebViewState extends State<LoadWebView>
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text('Download failed: $e')),
                             );
+                            webViewController?.evaluateJavascript(source: '''
+                              window.postMessage({
+                                status: 'error',
+                                assetId: '$assetId',
+                                reason: '$e'
+                              }, '*');
+                            ''');
                           }
                         }
                       }
@@ -626,53 +785,72 @@ class _LoadWebViewState extends State<LoadWebView>
                       .catchError((Object e) => debugPrint('$e'));
                 }
 
-                // Inject download button handler for downloads page
-                if (url.toString().contains('/downloads/')) {
-                  await webViewController!.evaluateJavascript(
-                    source: """
-                    javascript:(function() {
-                      // Function to handle download clicks
-                      function handleDownloadClick(event) {
-                        event.preventDefault();
-                        var link = event.target.closest('a');
-                        if (link && link.href) {
-                          var url = link.href;
-                          var filename = link.download || url.split('/').pop() || 'download.mp4';
-                          var title = link.textContent.trim() || link.title || filename;
+                // Inject JavaScript for download button click listeners
+                await webViewController!.evaluateJavascript(
+                  source: """
+                  javascript:(function() {
+                    // Function to handle download clicks
+                    function handleDownloadClick(event) {
+                      event.preventDefault();
+                      event.stopPropagation();
 
+                      var link = event.target.closest('a');
+                      var button = event.target.closest('button');
+
+                      var element = link || button;
+                      if (element) {
+                        var url = element.href || element.getAttribute('data-url') || element.getAttribute('onclick')?.match(/['"]([^'"]*\.mp4[^'"]*)['"]/)?.[1];
+                        var filename = element.download || element.getAttribute('data-filename') || (url ? url.split('/').pop() : null) || 'video.mp4';
+
+                        if (url) {
                           // Call Flutter handler
                           if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
-                            window.flutter_inappwebview.callHandler('App', {
-                              action: 'download',
+                            window.flutter_inappwebview.callHandler('downloadHandler', {
                               url: url,
-                              filename: filename,
-                              title: title
+                              filename: filename
                             });
                           }
                         }
-                        return false;
                       }
+                      return false;
+                    }
 
-                      // Find all download links and buttons
-                      var downloadLinks = document.querySelectorAll('a[href*=".mp4"], a[href*=".avi"], a[href*=".mov"], a[href*=".mkv"], button[onclick*="download"], a[download]');
-                      downloadLinks.forEach(function(link) {
-                        link.addEventListener('click', handleDownloadClick, true);
-                        link.style.backgroundColor = '#4CAF50';
-                        link.style.color = 'white';
-                        link.style.padding = '10px';
-                        link.style.borderRadius = '5px';
-                        link.style.textDecoration = 'none';
-                        link.style.display = 'inline-block';
-                        link.style.margin = '5px';
-                      });
+                    // Expose test function
+                    window.testSendDownload = function(url, filename) {
+                      if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+                        window.flutter_inappwebview.callHandler('downloadHandler', {
+                          url: url || 'https://example.com/test.mp4',
+                          filename: filename || 'test.mp4'
+                        });
+                      }
+                    };
 
-                      console.log('Download handlers attached to ' + downloadLinks.length + ' elements');
-                    })();
-                    """,
-                  ).then(
-                    (_) => debugPrint('Download handlers injected'),
-                  ).catchError((Object e) => debugPrint('Error injecting download handlers: $e'));
-                }
+                    // Find and attach listeners to download elements
+                    var downloadElements = document.querySelectorAll(
+                      'a[href*=".mp4"], a[href*=".avi"], a[href*=".mov"], a[href*=".mkv"], ' +
+                      'button[onclick*="download"], a[download], ' +
+                      '.download-btn, .download-link, [data-download]'
+                    );
+
+                    downloadElements.forEach(function(element) {
+                      element.addEventListener('click', handleDownloadClick, true);
+                      element.style.backgroundColor = '#4CAF50';
+                      element.style.color = 'white';
+                      element.style.padding = '10px';
+                      element.style.borderRadius = '5px';
+                      element.style.textDecoration = 'none';
+                      element.style.display = 'inline-block';
+                      element.style.margin = '5px';
+                      element.style.cursor = 'pointer';
+                    });
+
+                    console.log('Download handlers attached to ' + downloadElements.length + ' elements');
+                  })();
+                  """,
+                ).then(
+                  (_) => debugPrint('Download handlers injected'),
+                ).catchError((Object e) => debugPrint('Error injecting download handlers: $e'));
+
               },
               onReceivedError: (controller, request, error) async {
                 print("onReceivedError Hear.......$error");
@@ -747,6 +925,12 @@ class _LoadWebViewState extends State<LoadWebView>
               shouldOverrideUrlLoading: (controller, navigationAction) async {
                 var url = navigationAction.request.url.toString();
                 final uri = Uri.parse(url);
+
+                // Block .mp4 URLs and handle as downloads
+                if (url.toLowerCase().endsWith('.mp4') || url.contains('/wp-content/uploads/')) {
+                  await handleDownloadPayload({'url': url, 'filename': _extractFilename(url)});
+                  return NavigationActionPolicy.CANCEL;
+                }
 
                 if (Platform.isIOS && url.contains('geo')) {
                   url = url.replaceFirst(
@@ -901,7 +1085,9 @@ class _LoadWebViewState extends State<LoadWebView>
                 ),
               ),
             ),
+
         ],
+        ),
       ),
     );
   }

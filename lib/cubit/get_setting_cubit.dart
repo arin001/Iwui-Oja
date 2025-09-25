@@ -50,23 +50,13 @@ class GetSettingCubit extends Cubit<GetSettingState> {
           ? result.androidAppLink.toString()
           : result.iosAppLink.toString();
 
-      //set google add id
-      interstitialAdId = await Platform.isAndroid
-          ? await result.interstitialAdIdAndroid.toString()
-          : await result.interstitialAdIdIos.toString();
-
-      bannerAdId = await Platform.isAndroid
-          ? await result.bannerAdIdAndroid.toString()
-          : await result.bannerAdIdIos.toString();
-
-      openAdId = await Platform.isAndroid
-          ? await result.admobAppIdAndroid.toString()
-          : await result.admobAppIdIos.toString();
 
       emit(
         GetSettingStateInSussess(useAuthtoken: false, settingdata: result),
       );
     } catch (e) {
+      // On API failure, ensure webInitialUrl has a valid fallback to server URL
+      webInitialUrl = baseurl;
       emit(GetSettingInError(error: e.toString()));
     }
     return GetSettingModel.fromJson({});
@@ -231,44 +221,6 @@ class GetSettingCubit extends Cubit<GetSettingState> {
     return style;
   }
 
-  bool showInterstitialAds() {
-    try {
-      if (state is GetSettingStateInSussess) {
-        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-        bool status = (data.interstitialAdStatus)!;
-        return status;
-      }
-    } catch (e) {
-      print('Error getting interstitial ads status: $e');
-    }
-    return false; // Default to not showing ads
-  }
-
-  bool showBannerAds() {
-    try {
-      if (state is GetSettingStateInSussess) {
-        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-        bool status = (data.bannerAdStatus)!;
-        return status;
-      }
-    } catch (e) {
-      print('Error getting banner ads status: $e');
-    }
-    return false; // Default to not showing ads
-  }
-
-  bool showOpenAds() {
-    try {
-      if (state is GetSettingStateInSussess) {
-        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-        bool status = (data.admobAdStatus)!;
-        return status;
-      }
-    } catch (e) {
-      print('Error getting open ads status: $e');
-    }
-    return false; // Default to not showing ads
-  }
 
   bool hideHeader() {
     try {

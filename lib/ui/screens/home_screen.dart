@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:lottie/lottie.dart';
 import 'package:prime_web/cubit/get_setting_cubit.dart';
 import 'package:prime_web/main.dart';
 import 'package:prime_web/provider/navigation_bar_provider.dart';
-import 'package:prime_web/ui/widgets/admob_service.dart';
+import 'package:prime_web/offline/database_helper.dart';
+import 'package:prime_web/offline/offline_library_page.dart';
 import 'package:prime_web/ui/widgets/load_web_view.dart';
 import 'package:prime_web/utils/constants.dart';
 import 'package:provider/provider.dart';
@@ -32,6 +32,9 @@ class _HomeScreenState extends State<HomeScreen>
     duration: const Duration(milliseconds: 500),
   );
 
+  final DatabaseHelper _dbHelper = DatabaseHelper();
+  int _completedDownloadsCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -42,12 +45,21 @@ class _HomeScreenState extends State<HomeScreen>
             .setAnimationController(navigationContainerAnimationController);
       });
     }
+    _loadCompletedDownloadsCount();
   }
 
   @override
   void dispose() {
     navigationContainerAnimationController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadCompletedDownloadsCount() async {
+    final downloads = await _dbHelper.getAllDownloads();
+    final count = downloads.where((d) => d['status'] == 'completed').length;
+    if (mounted) {
+      setState(() => _completedDownloadsCount = count);
+    }
   }
 
   @override
@@ -112,20 +124,78 @@ class _HomeScreenState extends State<HomeScreen>
                     },
                   ),
                 )
-              : null,
+              : // My Downloads button for main page
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  margin: const EdgeInsets.only(bottom: 120), // Above navigation bar
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: context.read<GetSettingCubit>().loadercolor(),
+                      width: 3,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 8,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Stack(
+                    children: [
+                      FloatingActionButton.extended(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const OfflineLibraryPage(),
+                            ),
+                          );
+                        },
+                        backgroundColor: context.read<GetSettingCubit>().loadercolor(),
+                        foregroundColor: Colors.white,
+                        icon: const Icon(Icons.download_done, size: 28),
+                        label: const Text(
+                          'My Downloads',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                        elevation: 10,
+                        extendedPadding: const EdgeInsets.symmetric(horizontal: 20),
+                      ),
+                      if (_completedDownloadsCount > 0)
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 20,
+                              minHeight: 20,
+                            ),
+                            child: Text(
+                              _completedDownloadsCount.toString(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
     );
   }
 
   Widget displayAd() {
-    return context.read<GetSettingCubit>().showBannerAds()
-        ? SizedBox(
-            height: 50,
-            width: double.maxFinite,
-            child: AdWidget(
-              key: UniqueKey(),
-              ad: AdMobService.createBannerAd()..load(),
-            ),
-          )
-        : const SizedBox.shrink();
+    return const SizedBox.shrink();
   }
 }

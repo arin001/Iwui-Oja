@@ -35,7 +35,6 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   late AnimationController onSelectedAnimation;
   late AnimationController onChangedAnimation;
   Duration animationDuration = const Duration(milliseconds: 700);
-  late AppLifecycleReactor? _appLifecycleReactor;
   late AnimationController navigationContainerAnimationController =
       AnimationController(
     vsync: this,
@@ -68,12 +67,6 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     });
     FirebaseInitialize().initFirebaseState(context);
 
-    if (context.read<GetSettingCubit>().showOpenAds() == true) {
-      final appOpenAdManager = AdMobService()..loadOpenAd();
-      _appLifecycleReactor =
-          AppLifecycleReactor(appOpenAdManager: appOpenAdManager);
-      _appLifecycleReactor!.listenToAppStateChanges();
-    }
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await requestNotificationPermissions();
     });

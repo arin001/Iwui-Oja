@@ -55,20 +55,27 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _initializeSettingsAndOnboarding() async {
-    try {
-      await Future.wait([
-        _getSettingCubit.getSetting(),
-        _getOnbordingCubit.getOnboardingScreens(),
-        context.read<SetFcmCubit>().setFcm(),
-      ]);
-    } catch (e) {
-      // If API calls fail (which they will for a regular website), skip them
-      print('API calls failed, proceeding without server data: $e');
-      // Set default values and proceed
-      isSettingLoaded = true;
-      isOnboardingLoaded = true;
+    // Start API calls but don't wait for them
+    _getSettingCubit.getSetting().catchError((e) {
+      print('Settings API failed: $e');
+    });
+    _getOnbordingCubit.getOnboardingScreens().catchError((e) {
+      print('Onboarding API failed: $e');
+    });
+    context.read<SetFcmCubit>().setFcm().catchError((e) {
+      print('FCM API failed: $e');
+    });
+
+    // Set a timeout to proceed regardless of API status
+    Future.delayed(const Duration(seconds: 3), () {
+      if (!isSettingLoaded) {
+        isSettingLoaded = true;
+      }
+      if (!isOnboardingLoaded) {
+        isOnboardingLoaded = true;
+      }
       _checkBothLoaded();
-    }
+    });
   }
 
   void _checkBothLoaded() {
@@ -81,8 +88,8 @@ class _SplashScreenState extends State<SplashScreen> {
     final pref = await SharedPreferences.getInstance();
     final state = _getSettingCubit.state;
 
-    // Add a small delay to show splash screen briefly
-    await Future.delayed(const Duration(seconds: 2));
+    // Brief delay to show splash screen
+    await Future.delayed(const Duration(milliseconds: 500));
 
     if (state is GetSettingStateInSussess) {
       final maintenanceMode = state.settingdata.appMaintenanceMode;

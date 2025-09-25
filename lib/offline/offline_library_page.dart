@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-import 'download_manager.dart';
+import 'database_helper.dart';
 
 class OfflineLibraryPage extends StatefulWidget {
   const OfflineLibraryPage({super.key});
@@ -11,48 +11,146 @@ class OfflineLibraryPage extends StatefulWidget {
 }
 
 class _OfflineLibraryPageState extends State<OfflineLibraryPage> {
-  final dm = DownloadManager();
+  final dbHelper = DatabaseHelper();
+  List<Map<String, dynamic>> _downloads = [];
 
   @override
   void initState() {
     super.initState();
-    dm.addListener(_onChange);
-    dm.init();
+    _loadDownloads();
   }
 
-  @override
-  void dispose() {
-    dm.removeListener(_onChange);
-    super.dispose();
+  Future<void> _loadDownloads() async {
+    final downloads = await dbHelper.getAllDownloads();
+    if (mounted) {
+      setState(() => _downloads = downloads);
+    }
   }
-
-  void _onChange() => setState(() {});
 
   @override
   Widget build(BuildContext context) {
-    final items = dm.items;
     return Scaffold(
       appBar: AppBar(title: const Text('Offline downloads')),
-      body: items.isEmpty
+      body: _downloads.isEmpty
           ? const Center(child: Text('No downloads yet'))
           : ListView.separated(
-        itemCount: items.length,
+        itemCount: _downloads.length,
         separatorBuilder: (_, __) => const Divider(height: 1),
         itemBuilder: (context, i) {
-          final it = items[i];
+          final download = _downloads[i];
+          final status = download['status'] as String;
+          final progress = download['progress'] as int? ?? 0;
+          final filename = download['filename'] as String;
+          final path = download['path'] as String?;
+
           return ListTile(
-            title: Text(it.title),
-            subtitle: Text('${(it.fileSize ?? 0) ~/ (1024 * 1024)} MB'),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete),
-              onPressed: () => dm.remove(it.assetId),
-            ),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => OfflinePlayerPage(path: it.filePath, title: it.title),
+            leading: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(8),
               ),
+              child: const Icon(Icons.video_file, color: Colors.grey),
             ),
+            title: Text(filename),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${DateTime.parse(download['downloaded_at']).toLocal().toString().substring(0, 16)}'),
+                if (status == 'downloading' || status == 'paused')
+                  Column(
+                    children: [
+                      const SizedBox(height: 4),
+                      LinearProgressIndicator(
+                        value: progress / 100.0,
+                        backgroundColor: Colors.grey[300],
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          status == 'downloading' ? Colors.blue : Colors.orange,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '$progress% • $status',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: status == 'downloading' ? Colors.blue : Colors.orange,
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  Text(
+                    status,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: status == 'completed' ? Colors.green : Colors.red,
+                    ),
+                  ),
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Action buttons based on status
+                if (status == 'downloading')
+                  IconButton(
+                    icon: const Icon(Icons.pause, color: Colors.orange),
+                    onPressed: () async {
+                      // TODO: Implement pause functionality
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Pause not implemented yet')),
+                      );
+                    },
+                    tooltip: 'Pause',
+                  )
+                else if (status == 'paused')
+                  IconButton(
+                    icon: const Icon(Icons.play_arrow, color: Colors.blue),
+                    onPressed: () async {
+                      // TODO: Implement resume functionality
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Resume not implemented yet')),
+                      );
+                    },
+                    tooltip: 'Resume',
+                  ),
+
+                // Open button for completed downloads
+                if (status == 'completed' && path != null)
+                  IconButton(
+                    icon: const Icon(Icons.play_circle, color: Colors.green),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => OfflinePlayerPage(path: path, title: filename),
+                      ),
+                    ),
+                    tooltip: 'Play',
+                  ),
+
+                // Delete button
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () async {
+                    await dbHelper.deleteDownload(filename);
+                    _loadDownloads(); // Refresh the list
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Deleted: $filename')),
+                    );
+                  },
+                  tooltip: 'Delete',
+                ),
+              ],
+            ),
+            onTap: (status == 'completed' && path != null)
+                ? () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => OfflinePlayerPage(path: path, title: filename),
+                      ),
+                    )
+                : null,
           );
         },
       ),

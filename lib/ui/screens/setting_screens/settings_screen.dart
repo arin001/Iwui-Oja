@@ -34,9 +34,6 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   void initState() {
     super.initState();
-    if (context.read<GetSettingCubit>().showInterstitialAds()) {
-      AdMobService.createInterstitialAd();
-    }
   }
 
   @override
@@ -170,10 +167,6 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   void _onPressed(Widget routeName) {
-    if (context.read<GetSettingCubit>().showInterstitialAds()) {
-      AdMobService.showInterstitialAd();
-    }
-
     navigatorKey.currentState!.push(
       CupertinoPageRoute<dynamic>(builder: (_) => routeName),
     );
