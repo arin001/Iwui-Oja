@@ -463,11 +463,29 @@ class _LoadWebViewState extends State<LoadWebView>
 
   // Handle download payload from JavaScript or URL blocking
   Future<void> handleDownloadPayload(Map<String, dynamic> payload) async {
-    final url = payload['url'] ?? payload['downloadUrl'];
-    if (url == null || url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invalid download URL')),
-      );
+    // emergency guard — don't insert unless explicitly allowed by JS click
+    if (payload == null) return;
+    final url = payload['url'] ?? payload['downloadUrl'] ?? '';
+    final trusted = payload['trusted'] == true;
+    if (url.toString().isEmpty || !trusted) {
+      debugPrint('Ignored download payload (trusted:$trusted) url:$url');
+      return;
+    }
+
+    // Only process URLs that are clearly media files
+    final urlString = url.toString().toLowerCase();
+    final isMediaFile = urlString.endsWith('.mp4') ||
+                       urlString.endsWith('.avi') ||
+                       urlString.endsWith('.mov') ||
+                       urlString.endsWith('.mkv') ||
+                       urlString.contains('/wp-content/uploads/') ||
+                       urlString.contains('.mp4') ||
+                       urlString.contains('.avi') ||
+                       urlString.contains('.mov') ||
+                       urlString.contains('.mkv');
+
+    if (!isMediaFile) {
+      debugPrint('handleDownloadPayload: URL is not a media file: $url');
       return;
     }
 
@@ -494,12 +512,22 @@ class _LoadWebViewState extends State<LoadWebView>
 
       // Check if file already exists
       final file = File(savePath);
-      if (await file.exists()) {
+      final fileExists = await file.exists();
+      debugPrint('=== DOWNLOAD CHECK ===');
+      debugPrint('Checking file existence: $savePath');
+      debugPrint('File exists: $fileExists');
+      debugPrint('File size if exists: ${fileExists ? await file.length() : 'N/A'}');
+
+      if (fileExists) {
+        debugPrint('File already exists, skipping download: $savePath');
+        debugPrint('=== DOWNLOAD SKIPPED ===');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('File already exists: $filename')),
         );
         return;
       }
+      debugPrint('File does not exist, proceeding with download');
+      debugPrint('=== DOWNLOAD STARTING ===');
 
       // Insert record into database
       final dbHelper = DatabaseHelper();
@@ -605,17 +633,29 @@ class _LoadWebViewState extends State<LoadWebView>
                 webViewController?.addJavaScriptHandler(
                     handlerName: 'downloadHandler',
                     callback: (args) async {
-                      if (args.isNotEmpty && args[0] is Map) {
-                        await handleDownloadPayload(args[0]);
+                      debugPrint('JS->FLUTTER: downloadHandler triggered at ${DateTime.now()}');
+                      final payload = args.isNotEmpty ? args[0] : null;
+                      debugPrint('JS->FLUTTER raw payload: $payload');
+                      debugPrint(StackTrace.current.toString());
+                      if (payload == null) return null;
+                      final trusted = payload['trusted'] == true;
+                      final url = payload['url'] ?? payload['downloadUrl'];
+                      if (!trusted) {
+                        debugPrint('Ignored untrusted payload');
+                        return null;
                       }
+                      if (url == null || url.toString().isEmpty) return null;
+                      return await handleDownloadPayload(Map<String, dynamic>.from(payload));
                     }
                 );
 
                 webViewController?.addJavaScriptHandler(
                     handlerName: 'App',
                     callback: (args) async {
+                      debugPrint('JS->FLUTTER: App handler triggered at ${DateTime.now()}');
                       if (args.isNotEmpty && args[0] is Map) {
                         var data = args[0];
+                        debugPrint('App handler data: $data');
                         String action = data['action'] ?? '';
 
                         if (action == 'download') {
@@ -726,6 +766,7 @@ class _LoadWebViewState extends State<LoadWebView>
                 }
               },
               onLoadStart: (controller, url) async {
+                debugPrint('WEBVIEW onLoadStart: $url');
                 setState(() {
                   isLoading = true;
                   showErrorPage = false;
@@ -820,7 +861,8 @@ class _LoadWebViewState extends State<LoadWebView>
                       if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
                         window.flutter_inappwebview.callHandler('downloadHandler', {
                           url: url || 'https://example.com/test.mp4',
-                          filename: filename || 'test.mp4'
+                          filename: filename || 'test.mp4',
+                          trusted: true // Mark test calls as trusted
                         });
                       }
                     };
@@ -833,7 +875,19 @@ class _LoadWebViewState extends State<LoadWebView>
                     );
 
                     downloadElements.forEach(function(element) {
-                      element.addEventListener('click', handleDownloadClick, true);
+                      element.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const url = element.href || element.dataset.url || element.dataset.src;
+                        const filename = element.dataset.filename || element.download || (url ? url.split('/').pop() : null) || 'video.mp4';
+                        if (url) {
+                          window.flutter_inappwebview?.callHandler('downloadHandler', {
+                            url: url,
+                            filename: filename,
+                            trusted: !!e.isTrusted
+                          });
+                        }
+                      }, true);
                       element.style.backgroundColor = '#4CAF50';
                       element.style.color = 'white';
                       element.style.padding = '10px';
@@ -924,11 +978,13 @@ class _LoadWebViewState extends State<LoadWebView>
               },
               shouldOverrideUrlLoading: (controller, navigationAction) async {
                 var url = navigationAction.request.url.toString();
+                debugPrint('NAV REQUEST: $url');
                 final uri = Uri.parse(url);
 
-                // Block .mp4 URLs and handle as downloads
+                // Block automatic MP4 navigation and handle as downloads
                 if (url.toLowerCase().endsWith('.mp4') || url.contains('/wp-content/uploads/')) {
-                  await handleDownloadPayload({'url': url, 'filename': _extractFilename(url)});
+                  debugPrint('Intercept mp4 nav: $url');
+                  await handleDownloadPayload({'url': url, 'trusted': false});
                   return NavigationActionPolicy.CANCEL;
                 }
 

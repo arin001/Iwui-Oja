@@ -126,27 +126,13 @@ class _HomeScreenState extends State<HomeScreen>
                 )
               : // My Downloads button for main page
                 Container(
-                  padding: const EdgeInsets.all(4),
-                  margin: const EdgeInsets.only(bottom: 120), // Above navigation bar
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.8),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: context.read<GetSettingCubit>().loadercolor(),
-                      width: 3,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 8,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
+                  margin: const EdgeInsets.only(bottom: 130), // Position above navigation bar
                   child: Stack(
+                    alignment: Alignment.center,
                     children: [
                       FloatingActionButton.extended(
                         onPressed: () {
+                          debugPrint('FAB pressed - navigating to OfflineLibraryPage');
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -166,8 +152,8 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                       if (_completedDownloadsCount > 0)
                         Positioned(
-                          right: 8,
-                          top: 8,
+                          right: 12,
+                          top: 12,
                           child: Container(
                             padding: const EdgeInsets.all(4),
                             decoration: const BoxDecoration(

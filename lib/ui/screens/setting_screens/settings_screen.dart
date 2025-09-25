@@ -10,6 +10,7 @@ import 'package:prime_web/cubit/get_setting_cubit.dart';
 import 'package:prime_web/main.dart';
 import 'package:prime_web/ui/screens/setting_screens/aboutUs_screen.dart';
 import 'package:prime_web/ui/screens/setting_screens/contactUs_screen.dart';
+import 'package:prime_web/ui/screens/setting_screens/debug_info_screen.dart';
 import 'package:prime_web/ui/screens/setting_screens/privacyPolicy_screen.dart';
 import 'package:prime_web/ui/screens/setting_screens/term_and_condition.dart';
 import 'package:prime_web/offline/offline_library_page.dart';
@@ -57,13 +58,6 @@ class _SettingsScreenState extends State<SettingsScreen>
             child: Column(
               mainAxisSize: MainAxisSize.max,
               children: [
-                /// Dark Mode
-                const SettingTile(
-                  leadingIcon: CustomIcons.darkModeIcon,
-                  title: CustomStrings.darkMode,
-                  trailing: ChangeThemeButtonWidget(),
-                ),
-
                 // Offline Library
                 SettingTile(
                   leadingIcon: CustomIcons.homeIcon(Theme.of(context).brightness),
@@ -73,66 +67,16 @@ class _SettingsScreenState extends State<SettingsScreen>
                   },
                 ),
 
-                // About us
+                // Debug Info
                 SettingTile(
-                  leadingIcon: CustomIcons.aboutUsIcon,
-                  title: CustomStrings.aboutUs,
+                  leadingIcon: CustomIcons.settingsIcon(Theme.of(context).brightness),
+                  title: 'Debug Info',
                   onTap: () {
-                    _onPressed(AboutUsScreen());
-                  },
-                ),
-
-                // Privacy Policy
-                SettingTile(
-                  leadingIcon: CustomIcons.shareIcon,
-                  title: CustomStrings.privacyPolicy,
-                  onTap: () {
-                    _onPressed(PrivacyPolicyScreen());
-                  },
-                ),
-
-                // Terms & Conditions
-
-                SettingTile(
-                  leadingIcon: CustomIcons.termsIcon,
-                  title: CustomStrings.terms,
-                  onTap: () {
-                    _onPressed(TermAndCondition());
-                  },
-                ),
-
-                // contact_us
-                SettingTile(
-                  leadingIcon: CustomIcons.contactIcon,
-                  title: CustomStrings.contactUs,
-                  onTap: () {
-                    _onPressed(ContactusScreen());
-                  },
-                ),
-
-                /// Share
-                SettingTile(
-                  leadingIcon: CustomIcons.shareIcon,
-                  title: CustomStrings.share,
-                  onTap: () => Share.share(
-                    shareAppMessage,
-                    subject: shareAppMessage,
-                  ),
-                ),
-
-                /// Rate Us
-                SettingTile(
-                  leadingIcon: CustomIcons.rateUsIcon,
-                  title: CustomStrings.rateUs,
-                  onTap: () async {
-                    if (await _inAppReview.isAvailable()) {
-                      await _inAppReview
-                          .requestReview()
-                          .then((value) => _rateApp(context))
-                          .onError(
-                            (error, stackTrace) => log('[RateUs] : $error'),
-                          );
-                    }
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const DebugInfoScreen(),
+                      ),
+                    );
                   },
                 ),
               ],

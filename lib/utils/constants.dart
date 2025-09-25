@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prime_web/cubit/get_setting_cubit.dart';
@@ -12,7 +13,7 @@ export 'strings.dart';
 const String androidPackageName = 'com.onlinecourse.pheichon';
 
 /// DO NOT ADD / AT THE END OF URL
-String baseurl = 'https://goldenrod-hippopotamus-556850.hostingersite.com';
+String baseurl = 'https://darkorange-sardine-183079.hostingersite.com';
 
 String databaseUrl = '$baseurl/api/';
 
@@ -45,24 +46,29 @@ List<Map<String, String>> navigationTabs(BuildContext context) {
     final state = cubit.state;
 
     if (state is GetSettingStateInSussess) {
+      final primaryUrl = cubit.primaryUrl();
+      final secondaryUrl = cubit.secondaryUrl();
+      debugPrint('Using cubit URLs - primary: $primaryUrl, secondary: $secondaryUrl');
+
       return [
         {
-          'url': cubit.primaryUrl(),
+          'url': primaryUrl,
           'label': cubit.firstBottomNavWeb(),
           'icon': CustomIcons.homeIcon(Theme.of(context).brightness),
         },
         {
-          'url': cubit.secondaryUrl(),
+          'url': secondaryUrl,
           'label': cubit.secondBottomNavWeb(),
           'icon': CustomIcons.demoIcon(Theme.of(context).brightness),
         },
       ];
     }
   } catch (e) {
-    print('Settings not available, using fallback navigation: $e');
+    debugPrint('Settings not available, using fallback navigation: $e');
   }
 
   // Fallback navigation tabs when settings are not available
+  debugPrint('Using fallback URLs - baseurl: $baseurl');
   return [
     {
       'url': baseurl,

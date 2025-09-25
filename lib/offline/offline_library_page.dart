@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-import 'database_helper.dart';
+import 'download_manager.dart';
 
 class OfflineLibraryPage extends StatefulWidget {
   const OfflineLibraryPage({super.key});
@@ -11,17 +11,28 @@ class OfflineLibraryPage extends StatefulWidget {
 }
 
 class _OfflineLibraryPageState extends State<OfflineLibraryPage> {
-  final dbHelper = DatabaseHelper();
-  List<Map<String, dynamic>> _downloads = [];
+  final dm = DownloadManager();
+  List<DownloadItem> _downloads = [];
 
   @override
   void initState() {
     super.initState();
+    dm.addListener(_onDownloadsChanged);
+    _loadDownloads();
+  }
+
+  @override
+  void dispose() {
+    dm.removeListener(_onDownloadsChanged);
+    super.dispose();
+  }
+
+  void _onDownloadsChanged() {
     _loadDownloads();
   }
 
   Future<void> _loadDownloads() async {
-    final downloads = await dbHelper.getAllDownloads();
+    final downloads = await dm.getAllDownloads();
     if (mounted) {
       setState(() => _downloads = downloads);
     }
@@ -38,10 +49,10 @@ class _OfflineLibraryPageState extends State<OfflineLibraryPage> {
         separatorBuilder: (_, __) => const Divider(height: 1),
         itemBuilder: (context, i) {
           final download = _downloads[i];
-          final status = download['status'] as String;
-          final progress = download['progress'] as int? ?? 0;
-          final filename = download['filename'] as String;
-          final path = download['path'] as String?;
+          final status = download.status.name;
+          final progress = download.progress;
+          final filename = download.title; // Use title as filename for display
+          final path = download.localPath;
 
           return ListTile(
             leading: Container(
@@ -57,7 +68,7 @@ class _OfflineLibraryPageState extends State<OfflineLibraryPage> {
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('${DateTime.parse(download['downloaded_at']).toLocal().toString().substring(0, 16)}'),
+                Text('${download.downloadedAt?.toLocal().toString().substring(0, 16) ?? 'Unknown'}'),
                 if (status == 'downloading' || status == 'paused')
                   Column(
                     children: [
@@ -133,11 +144,39 @@ class _OfflineLibraryPageState extends State<OfflineLibraryPage> {
                 IconButton(
                   icon: const Icon(Icons.delete, color: Colors.red),
                   onPressed: () async {
-                    await dbHelper.deleteDownload(filename);
-                    _loadDownloads(); // Refresh the list
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Deleted: $filename')),
+                    debugPrint('=== DELETE BUTTON PRESSED ===');
+                    debugPrint('Deleting download: assetId=${download.assetId}, filename=$filename, localPath=${download.localPath}');
+
+                    // Show confirmation dialog
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Delete Download'),
+                        content: Text('Are you sure you want to delete "$filename"? This will also delete the file from your device.'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(false),
+                            child: const Text('Cancel'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(true),
+                            style: TextButton.styleFrom(foregroundColor: Colors.red),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
                     );
+
+                    if (confirmed == true) {
+                      debugPrint('User confirmed deletion, proceeding...');
+                      await dm.removeDownloadRecordAndFile(download.assetId, download.localPath);
+                      debugPrint('Deletion completed');
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Deleted: $filename')),
+                      );
+                    } else {
+                      debugPrint('User cancelled deletion');
+                    }
                   },
                   tooltip: 'Delete',
                 ),

@@ -17,14 +17,37 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    final databasesPath = await getDatabasesPath();
-    final path = join(databasesPath, 'downloads.db');
-
     final db = await openDatabase(
-      path,
-      version: 2,
-      onCreate: _onCreate,
-      onUpgrade: _onUpgrade,
+      join(await getDatabasesPath(), 'app.db'),
+      version: 3,
+      onCreate: (db, v) async {
+        await db.execute('''
+          CREATE TABLE downloads(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assetId TEXT,
+            title TEXT,
+            localPath TEXT,
+            progress INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'queued',
+            sizeBytes INTEGER,
+            downloadedAt TEXT,
+            filename TEXT,
+            downloaded_at TEXT,
+            path TEXT,
+            url TEXT
+          )
+        ''');
+      },
+      onUpgrade: (db, oldV, newV) async {
+        final cols = (await db.rawQuery("PRAGMA table_info(downloads)"))
+            .map((r) => r['name'].toString()).toList();
+        if (!cols.contains('path')) await db.execute("ALTER TABLE downloads ADD COLUMN path TEXT");
+        if (!cols.contains('url')) await db.execute("ALTER TABLE downloads ADD COLUMN url TEXT");
+        // copy localPath -> path if present
+        if (cols.contains('localPath')) {
+          await db.execute("UPDATE downloads SET path = localPath WHERE path IS NULL OR path = ''");
+        }
+      },
     );
 
     // Verify schema after DB open
@@ -34,33 +57,6 @@ class DatabaseHelper {
     return db;
   }
 
-  Future<void> _onCreate(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE downloads (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        filename TEXT,
-        path TEXT,
-        url TEXT,
-        status TEXT,
-        downloaded_at TEXT
-      )
-    ''');
-  }
-
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      // Check if columns exist before adding them
-      final columns = await db.rawQuery("PRAGMA table_info(downloads)");
-      final columnNames = columns.map((col) => col['name'] as String).toSet();
-
-      if (!columnNames.contains('filename')) {
-        await db.execute('ALTER TABLE downloads ADD COLUMN filename TEXT');
-      }
-      if (!columnNames.contains('downloaded_at')) {
-        await db.execute('ALTER TABLE downloads ADD COLUMN downloaded_at TEXT');
-      }
-    }
-  }
 
   Future<int> insertDownloadRecord(Map<String, dynamic> row) async {
     debugPrint('insertDownloadRecord called: ${row.keys}');

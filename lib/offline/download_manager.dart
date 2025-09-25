@@ -8,6 +8,46 @@ import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import 'database_helper.dart';
 
+Future<bool> deleteDownloadedFile(String? filePath) async {
+  debugPrint('deleteDownloadedFile called with path: $filePath');
+  if (filePath == null || filePath.isEmpty) {
+    debugPrint('deleteDownloadedFile: null or empty path');
+    return false;
+  }
+  try {
+    final f = File(filePath);
+    final exists = await f.exists();
+    debugPrint('File exists check: $filePath -> $exists');
+
+    // also try alternative column names e.g. localPath
+    if (exists) {
+      await f.delete();
+      final stillExists = await f.exists();
+      debugPrint('Deleted file: $filePath, still exists after delete: $stillExists');
+      return !stillExists;
+    }
+    // try removing temp/partial variants
+    final part = '$filePath.part';
+    final tmp = '${p.withoutExtension(filePath)}.tmp';
+    final partExists = await File(part).exists();
+    final tmpExists = await File(tmp).exists();
+    debugPrint('Checking variants: part=$partExists, tmp=$tmpExists');
+
+    if (partExists) {
+      await File(part).delete();
+      debugPrint('Deleted part file: $part');
+    }
+    if (tmpExists) {
+      await File(tmp).delete();
+      debugPrint('Deleted tmp file: $tmp');
+    }
+    return false;
+  } catch (e, st) {
+    debugPrint('deleteDownloadedFile error: $e\n$st');
+    return false;
+  }
+}
+
 enum DownloadStatus {
   queued,
   downloading,
@@ -106,12 +146,47 @@ class DownloadManager with ChangeNotifier {
     required String title,
     required Uri url,
   }) async {
-    // Check if already exists
+    debugPrint('DownloadManager.startDownload called: $assetId, $title, $url');
+
+    // Check if already exists in database
+    debugPrint('=== DOWNLOAD MANAGER CHECK ===');
+    debugPrint('startDownload: checking existing record for assetId=$assetId');
     final existing = await _db.getDownload(assetId);
+    debugPrint('Database query result: found=${existing != null}');
+
     if (existing != null) {
+      debugPrint('Existing record details: $existing');
       final item = DownloadItem.fromJson(existing);
-      if (item.status == DownloadStatus.completed) return;
+      debugPrint('Parsed item: status=${item.status}, localPath=${item.localPath}');
+
+      if (item.status == DownloadStatus.completed) {
+        debugPrint('Status is completed, checking file existence...');
+        // Check if file actually exists on disk
+        if (item.localPath != null) {
+          final file = File(item.localPath!);
+          final fileExists = await file.exists();
+          debugPrint('File existence check: ${item.localPath} -> exists: $fileExists');
+          if (fileExists) {
+            final fileSize = await file.length();
+            debugPrint('File exists with size: $fileSize bytes');
+            debugPrint('Download already exists and file is present: $assetId');
+            debugPrint('=== DOWNLOAD SKIPPED - FILE EXISTS ===');
+            return;
+          } else {
+            debugPrint('Download record exists but file missing, restarting: $assetId');
+            // File is missing, restart download
+          }
+        } else {
+          debugPrint('Download completed but no file path, restarting: $assetId');
+          // No file path, restart download
+        }
+      } else {
+        debugPrint('Status is not completed (${item.status}), proceeding with download');
+      }
+    } else {
+      debugPrint('No existing record found for assetId=$assetId, proceeding with download');
     }
+    debugPrint('=== PROCEEDING WITH DOWNLOAD ===');
 
     // Create initial entry
     final downloadData = {
@@ -132,16 +207,33 @@ class DownloadManager with ChangeNotifier {
   }
 
   void _downloadFile(String assetId, String title, Uri url) async {
+    // Get download directory and compute file path
+    final dir = await _getDownloadDirectory();
+    final sanitizedTitle = _sanitizeFileName(title);
+    final fileName = '${assetId}__$sanitizedTitle.mp4';
+    final filePath = p.join(dir.path, fileName);
+    debugPrint('_downloadFile: computed filePath=$filePath for assetId=$assetId, title=$title');
+
     try {
+
+      // Check if file already exists before starting download
+      final targetFile = File(filePath);
+      if (await targetFile.exists()) {
+        // File exists, update DB status to completed and return
+        await _db.updateDownload(assetId, {
+          'status': DownloadStatus.completed.name,
+          'localPath': filePath,
+          'progress': 100,
+          'downloadedAt': DateTime.now().toIso8601String(),
+        });
+        debugPrint('File already exists. Skipping download: $filePath');
+        notifyListeners();
+        return;
+      }
+
       // Update status to downloading
       await _db.updateDownload(assetId, {'status': DownloadStatus.downloading.name});
       notifyListeners();
-
-      // Get download directory
-      final dir = await _getDownloadDirectory();
-      final sanitizedTitle = _sanitizeFileName(title);
-      final fileName = '${assetId}__$sanitizedTitle.mp4';
-      final filePath = p.join(dir.path, fileName);
 
       // Create cancel token for this download
       final cancelToken = CancelToken();
@@ -181,6 +273,16 @@ class DownloadManager with ChangeNotifier {
       // This would need access to the WebViewController
 
     } catch (e) {
+      // Clean up partial file on failure
+      try {
+        if (await File(filePath).exists()) {
+          await File(filePath).delete();
+          debugPrint('Cleaned up partial file on failure: $filePath');
+        }
+      } catch (cleanupError) {
+        debugPrint('Failed to cleanup partial file: $cleanupError');
+      }
+
       if (e is DioException && e.type == DioExceptionType.cancel) {
         // Download was cancelled
         await _db.updateDownload(assetId, {'status': DownloadStatus.paused.name});
@@ -241,13 +343,12 @@ class DownloadManager with ChangeNotifier {
     // Cancel if active
     await cancelDownload(assetId);
 
-    // Delete completed file
+    // Delete completed file using the safe delete function
     final download = await _db.getDownload(assetId);
-    if (download != null && download['localPath'] != null) {
-      final file = File(download['localPath']);
-      if (await file.exists()) {
-        await file.delete();
-      }
+    if (download != null) {
+      // Try both path and localPath columns
+      final filePath = download['path'] ?? download['localPath'];
+      await deleteDownloadedFile(filePath);
     }
 
     // Remove from database
@@ -277,4 +378,22 @@ class DownloadManager with ChangeNotifier {
   Future<List<DownloadItem>> get items async => await getAllDownloads();
 
   Future<void> remove(String assetId) async => await deleteDownload(assetId);
+
+  Future<void> removeDownloadRecordAndFile(String assetId, String? filePath) async {
+    debugPrint('removeDownloadRecordAndFile called: assetId=$assetId, filePath=$filePath');
+
+    final removedFile = await deleteDownloadedFile(filePath);
+    debugPrint('File deletion result: $removedFile for path: $filePath');
+
+    final db = await _db.database;
+    try {
+      // prefer deleting the DB row. If you want keep history, update status instead.
+      final deletedRows = await db.delete('downloads', where: 'assetId = ?', whereArgs: [assetId]);
+      debugPrint('Removed DB record assetId:$assetId, deletedRows:$deletedRows, fileDeleted:$removedFile');
+    } catch (e) {
+      debugPrint('DB delete failed: $e');
+    }
+    // notify UI
+    notifyListeners();
+  }
 }

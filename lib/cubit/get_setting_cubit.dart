@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prime_web/data/model/get_setting_model.dart';
 import 'package:prime_web/data/repositories/get_setting_repositories.dart';
@@ -33,8 +34,13 @@ class GetSettingCubit extends Cubit<GetSettingState> {
     emit(GetSettingStateInProgress());
     try {
       final result = await Getsetting.Getsettingrepo();
+      debugPrint('API Settings Response - websiteUrl: ${result.websiteUrl}, primaryUrl: ${result.primaryUrl}, secondaryUrl: ${result.secondaryUrl}');
+
       forceUpdatee = await result.appForceUpdate.toString(); //forceUpdate
-      webInitialUrl = await result.websiteUrl.toString(); // Web Initial Url
+      // Force use website URL from constants instead of API response
+      webInitialUrl = baseurl; // Use website URL from constants.dart
+      debugPrint('Forcing webInitialUrl to website URL: $webInitialUrl');
+
       message = await result.shareAppMessage.toString(); // Share App Message
 
       String checkUrl = result.dualWebsite.toString();
@@ -63,29 +69,16 @@ class GetSettingCubit extends Cubit<GetSettingState> {
   }
 
   String primaryUrl() {
-    try {
-      if (state is GetSettingStateInSussess) {
-        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-        String url = data.primaryUrl.toString();
-        return url;
-      }
-    } catch (e) {
-      print('Error getting primary URL: $e');
-    }
-    return baseurl; // Fallback to base URL
+    // Force use website URL from constants instead of API response
+    debugPrint('primaryUrl returning website URL: $baseurl');
+    return baseurl;
   }
 
   String secondaryUrl() {
-    try {
-      if (state is GetSettingStateInSussess) {
-        GetSettingModel data = (state as GetSettingStateInSussess).settingdata;
-        String url = data.secondaryUrl.toString();
-        return url;
-      }
-    } catch (e) {
-      print('Error getting secondary URL: $e');
-    }
-    return '$baseurl/downloads/'; // Fallback to downloads page
+    // Force use downloads page from website URL
+    final downloadsUrl = '$baseurl/downloads/';
+    debugPrint('secondaryUrl returning downloads URL: $downloadsUrl');
+    return downloadsUrl;
   }
 
   Color hexToColor(String hexString, {String alphaChannel = 'FF'}) {
