@@ -85,18 +85,79 @@ class DownloadItem {
     'downloadedAt': downloadedAt?.toIso8601String(),
   };
 
-  static DownloadItem fromJson(Map<String, dynamic> j) => DownloadItem(
-    assetId: j['assetId'],
-    title: j['title'],
-    localPath: j['localPath'],
-    progress: j['progress'] ?? 0,
-    status: DownloadStatus.values.firstWhere(
-      (e) => e.name == j['status'],
-      orElse: () => DownloadStatus.queued,
-    ),
-    sizeBytes: j['sizeBytes'],
-    downloadedAt: j['downloadedAt'] != null ? DateTime.parse(j['downloadedAt']) : null,
-  );
+  static DownloadItem fromJson(Map<String, dynamic> j) {
+    // Backward-compatible, tolerant parsing
+    final rawStatus = j['status'];
+    DownloadStatus parsedStatus;
+    if (rawStatus is String) {
+      parsedStatus = DownloadStatus.values.firstWhere(
+        (e) => e.name == rawStatus ||
+            // handle old enum toString representation
+            rawStatus.endsWith('.${e.name}'),
+        orElse: () => DownloadStatus.queued,
+      );
+    } else {
+      parsedStatus = DownloadStatus.queued;
+    }
+
+    final String assetId =
+        (j['assetId'] ??
+            j['filename'] ?? // legacy column
+            j['id']?.toString() ??
+            // derive from path if possible
+            (() {
+              final pth = (j['path'] ?? j['localPath']) as String?;
+              if (pth == null) return null;
+              final base = p.basenameWithoutExtension(pth);
+              // Expect pattern "<assetId>__title"
+              final parts = base.split('__');
+              return parts.isNotEmpty ? parts.first : null;
+            })() ??
+            'unknown') as String;
+
+    final String title =
+        (j['title'] ??
+            // derive from path filename
+            (() {
+              final pth = (j['path'] ?? j['localPath']) as String?;
+              if (pth == null) return null;
+              final base = p.basenameWithoutExtension(pth);
+              final parts = base.split('__');
+              if (parts.length >= 2) return parts.sublist(1).join('__');
+              return base;
+            })() ??
+            'Unknown') as String;
+
+    final String? localPath = (j['localPath'] ?? j['path']) as String?;
+
+    DateTime? downloadedAt;
+    final dynamic dt = j['downloadedAt'] ?? j['downloaded_at'];
+    if (dt is String && dt.isNotEmpty) {
+      try {
+        downloadedAt = DateTime.parse(dt);
+      } catch (_) {
+        downloadedAt = null;
+      }
+    }
+
+    return DownloadItem(
+      assetId: assetId,
+      title: title,
+      localPath: localPath,
+      progress: (j['progress'] is int)
+          ? j['progress'] as int
+          : (j['progress'] is String)
+              ? int.tryParse(j['progress']) ?? 0
+              : 0,
+      status: parsedStatus,
+      sizeBytes: (j['sizeBytes'] is int)
+          ? j['sizeBytes'] as int
+          : (j['sizeBytes'] is String)
+              ? int.tryParse(j['sizeBytes']) ?? 0
+              : null,
+      downloadedAt: downloadedAt,
+    );
+  }
 
   DownloadItem copyWith({
     String? assetId,
@@ -193,6 +254,8 @@ class DownloadManager with ChangeNotifier {
       'assetId': assetId,
       'title': title,
       'localPath': null,
+      'path': null,
+      'url': url.toString(),
       'progress': 0,
       'status': DownloadStatus.queued.name,
       'sizeBytes': null,
@@ -223,6 +286,7 @@ class DownloadManager with ChangeNotifier {
         await _db.updateDownload(assetId, {
           'status': DownloadStatus.completed.name,
           'localPath': filePath,
+          'path': filePath,
           'progress': 100,
           'downloadedAt': DateTime.now().toIso8601String(),
         });
@@ -231,8 +295,12 @@ class DownloadManager with ChangeNotifier {
         return;
       }
 
-      // Update status to downloading
-      await _db.updateDownload(assetId, {'status': DownloadStatus.downloading.name});
+      // Update status to downloading and persist intended file path early
+      await _db.updateDownload(assetId, {
+        'status': DownloadStatus.downloading.name,
+        'localPath': filePath,
+        'path': filePath,
+      });
       notifyListeners();
 
       // Create cancel token for this download
@@ -261,6 +329,7 @@ class DownloadManager with ChangeNotifier {
       await _db.updateDownload(assetId, {
         'status': DownloadStatus.completed.name,
         'localPath': filePath,
+        'path': filePath,
         'progress': 100,
         'downloadedAt': DateTime.now().toIso8601String(),
       });
@@ -309,10 +378,15 @@ class DownloadManager with ChangeNotifier {
     if (download != null) {
       final item = DownloadItem.fromJson(download);
       if (item.status == DownloadStatus.paused || item.status == DownloadStatus.failed) {
-        // For simplicity, restart the download
-        // In a real implementation, you'd resume from where it left off
-        final url = Uri.parse(''); // You'd need to store the original URL
-        _downloadFile(assetId, item.title, url);
+        // Restart using stored original URL if available
+        final storedUrl = (download['url'] as String?)?.trim();
+        if (storedUrl == null || storedUrl.isEmpty) {
+          debugPrint('resumeDownload: missing original URL for assetId=$assetId');
+          await _db.updateDownload(assetId, {'status': DownloadStatus.failed.name});
+          notifyListeners();
+          return;
+        }
+        _downloadFile(assetId, item.title, Uri.parse(storedUrl));
       }
     }
   }
@@ -380,10 +454,49 @@ class DownloadManager with ChangeNotifier {
   Future<void> remove(String assetId) async => await deleteDownload(assetId);
 
   Future<void> removeDownloadRecordAndFile(String assetId, String? filePath) async {
+    debugPrint('=== REMOVE DOWNLOAD RECORD AND FILE ===');
     debugPrint('removeDownloadRecordAndFile called: assetId=$assetId, filePath=$filePath');
 
+    // First, get the download record to check all paths
+    final download = await _db.getDownload(assetId);
+    debugPrint('Download record from DB: $download');
+
+    if (download != null) {
+      final dbPath = download['path'] ?? download['localPath'];
+      debugPrint('Path from DB: $dbPath');
+      debugPrint('Path from parameter: $filePath');
+
+      // Try deleting using the DB path first
+      if (dbPath != null && dbPath != filePath) {
+        debugPrint('Trying to delete using DB path: $dbPath');
+        final dbPathDeleted = await deleteDownloadedFile(dbPath);
+        debugPrint('DB path deletion result: $dbPathDeleted');
+      }
+    }
+
+    // Then try the parameter path
     final removedFile = await deleteDownloadedFile(filePath);
-    debugPrint('File deletion result: $removedFile for path: $filePath');
+    debugPrint('Parameter path deletion result: $removedFile for path: $filePath');
+
+    // Also try to find and delete any files with this assetId in the download directory
+    try {
+      final dir = await _getDownloadDirectory();
+      final files = await dir.list().toList();
+      debugPrint('Files in download directory: ${files.length}');
+
+      for (final file in files) {
+        if (file is File) {
+          final fileName = file.path.split('/').last;
+          if (fileName.contains(assetId)) {
+            debugPrint('Found file with assetId in name: $fileName');
+            final fileDeleted = await deleteDownloadedFile(file.path);
+            debugPrint('AssetId file deletion result: $fileDeleted for $fileName');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error checking download directory: $e');
+    }
 
     final db = await _db.database;
     try {
@@ -395,5 +508,6 @@ class DownloadManager with ChangeNotifier {
     }
     // notify UI
     notifyListeners();
+    debugPrint('=== REMOVE DOWNLOAD COMPLETED ===');
   }
 }

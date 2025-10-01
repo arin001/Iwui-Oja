@@ -32,9 +32,25 @@ class _OfflineLibraryPageState extends State<OfflineLibraryPage> {
   }
 
   Future<void> _loadDownloads() async {
-    final downloads = await dm.getAllDownloads();
-    if (mounted) {
-      setState(() => _downloads = downloads);
+    debugPrint('=== LOADING DOWNLOADS ===');
+    try {
+      final downloads = await dm.getAllDownloads();
+      debugPrint('Loaded ${downloads.length} downloads from database');
+      for (final download in downloads) {
+        debugPrint('Download: ${download.assetId} - ${download.title} - ${download.status} - ${download.localPath}');
+      }
+      if (mounted) {
+        setState(() => _downloads = downloads);
+      }
+      debugPrint('=== DOWNLOADS LOADED ===');
+    } catch (e, st) {
+      debugPrint('Error loading downloads: $e\n$st');
+      if (mounted) {
+        setState(() => _downloads = []);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not load offline downloads')),
+        );
+      }
     }
   }
 

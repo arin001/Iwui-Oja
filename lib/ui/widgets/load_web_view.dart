@@ -463,36 +463,49 @@ class _LoadWebViewState extends State<LoadWebView>
 
   // Handle download payload from JavaScript or URL blocking
   Future<void> handleDownloadPayload(Map<String, dynamic> payload) async {
-    // emergency guard — don't insert unless explicitly allowed by JS click
+    // Defensive: require explicit user click (trusted) and a valid URL
     if (payload == null) return;
-    final url = payload['url'] ?? payload['downloadUrl'] ?? '';
-    final trusted = payload['trusted'] == true;
-    if (url.toString().isEmpty || !trusted) {
-      debugPrint('Ignored download payload (trusted:$trusted) url:$url');
+    final dynamic rawUrl = payload['url'] ?? payload['downloadUrl'] ?? '';
+    final bool trusted = payload['trusted'] == true;
+    final String urlStr = rawUrl.toString();
+    if (urlStr.isEmpty || !trusted) {
+      debugPrint('handleDownloadPayload: ignored (trusted:$trusted url:$urlStr)');
       return;
     }
 
-    // Only process URLs that are clearly media files
-    final urlString = url.toString().toLowerCase();
-    final isMediaFile = urlString.endsWith('.mp4') ||
-                       urlString.endsWith('.avi') ||
-                       urlString.endsWith('.mov') ||
-                       urlString.endsWith('.mkv') ||
-                       urlString.contains('/wp-content/uploads/') ||
-                       urlString.contains('.mp4') ||
-                       urlString.contains('.avi') ||
-                       urlString.contains('.mov') ||
-                       urlString.contains('.mkv');
+    // Only process media files
+    final lower = urlStr.toLowerCase();
+    final bool isMediaFile = lower.endsWith('.mp4') ||
+        lower.endsWith('.avi') ||
+        lower.endsWith('.mov') ||
+        lower.endsWith('.mkv') ||
+        lower.contains('/wp-content/uploads/') ||
+        lower.contains('.mp4') ||
+        lower.contains('.avi') ||
+        lower.contains('.mov') ||
+        lower.contains('.mkv');
 
     if (!isMediaFile) {
-      debugPrint('handleDownloadPayload: URL is not a media file: $url');
+      debugPrint('handleDownloadPayload: not media: $urlStr');
       return;
     }
 
-    final filename = payload['filename'] ?? _extractFilename(url.toString());
+    final String filename = (payload['filename'] ?? _extractFilename(urlStr)).toString();
+    final String title = (payload['title'] ?? filename).toString();
+
+    // Generate a semi-stable unique assetId using url hash + timestamp (no extra deps)
+    final int h0 = urlStr.codeUnits.fold<int>(0, (acc, b) {
+      int x = 0x1fffffff & (acc + b);
+      x = 0x1fffffff & (x + (x << 10));
+      return x ^ (x >> 6);
+    });
+    final int h1 = 0x1fffffff & (h0 + (h0 << 3));
+    final int h2 = h1 ^ (h1 >> 11);
+    final int h3 = 0x1fffffff & (h2 + (h2 << 15));
+    final String assetId = 'v_${(h3 & 0xffffffff).toRadixString(16)}_${DateTime.now().millisecondsSinceEpoch}';
 
     try {
-      // Request storage permission if needed
+      // Request storage permission (for older Androids)
       bool hasPermission = await _requestStoragePermission();
       if (!hasPermission) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -501,92 +514,40 @@ class _LoadWebViewState extends State<LoadWebView>
         return;
       }
 
-      // Get app documents directory
-      final appDir = await getApplicationDocumentsDirectory();
-      final downloadsDir = Directory('${appDir.path}/downloads');
-      if (!await downloadsDir.exists()) {
-        await downloadsDir.create(recursive: true);
-      }
+      final dm = DownloadManager();
+      await dm.init();
 
-      final savePath = '${downloadsDir.path}/$filename';
+      // Let the web page know we accepted the download
+      webViewController?.evaluateJavascript(source: '''
+        window.postMessage({
+          status: 'accepted',
+          assetId: '$assetId',
+          title: '${title.replaceAll("'", "\\'")}'
+        }, '*');
+      ''');
 
-      // Check if file already exists
-      final file = File(savePath);
-      final fileExists = await file.exists();
-      debugPrint('=== DOWNLOAD CHECK ===');
-      debugPrint('Checking file existence: $savePath');
-      debugPrint('File exists: $fileExists');
-      debugPrint('File size if exists: ${fileExists ? await file.length() : 'N/A'}');
-
-      if (fileExists) {
-        debugPrint('File already exists, skipping download: $savePath');
-        debugPrint('=== DOWNLOAD SKIPPED ===');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('File already exists: $filename')),
-        );
-        return;
-      }
-      debugPrint('File does not exist, proceeding with download');
-      debugPrint('=== DOWNLOAD STARTING ===');
-
-      // Insert record into database
-      final dbHelper = DatabaseHelper();
-      await dbHelper.insertDownloadRecord({
-        'filename': filename,
-        'path': savePath,
-        'url': url,
-        'status': 'downloading',
-        'downloaded_at': DateTime.now().toIso8601String(),
-      });
-
-      // Show download started message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Download started: $filename')),
+      // Route all downloads through DownloadManager to save in app-private storage and DB
+      await dm.startDownload(
+        assetId: assetId,
+        title: title,
+        url: Uri.parse(urlStr),
       );
-
-      // Start download
-      final dio = Dio();
-      await dio.download(
-        url,
-        savePath,
-        onReceiveProgress: (received, total) async {
-          if (total > 0) {
-            final progress = (received / total * 100).round();
-
-            // Update database with progress
-            await dbHelper.updateDownload(filename, {
-              'status': progress >= 100 ? 'completed' : 'downloading',
-              'progress': progress,
-            });
-
-            // Notify listeners (this will update the UI)
-            // We can add a callback here if needed
-          }
-        },
-      );
-
-      // Update final status
-      await dbHelper.updateDownload(filename, {
-        'status': 'completed',
-        'progress': 100,
-      });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Download completed: $filename')),
+        SnackBar(content: Text('Download started: $title')),
       );
-
-    } catch (e) {
-      print('Download error: $e');
-
-      // Update status to failed
-      final dbHelper = DatabaseHelper();
-      await dbHelper.updateDownload(filename, {
-        'status': 'failed',
-      });
-
+    } catch (e, st) {
+      debugPrint('handleDownloadPayload error: $e\n$st');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Download failed: $e')),
       );
+
+      webViewController?.evaluateJavascript(source: '''
+        window.postMessage({
+          status: 'error',
+          assetId: '$assetId'
+        }, '*');
+      ''');
     }
   }
 

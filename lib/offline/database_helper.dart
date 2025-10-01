@@ -65,9 +65,9 @@ class DatabaseHelper {
     return await db.insert('downloads', row, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<int> updateDownload(String filename, Map<String, dynamic> download) async {
+  Future<int> updateDownload(String assetId, Map<String, dynamic> download) async {
     final db = await database;
-    return await db.update('downloads', download, where: 'filename = ?', whereArgs: [filename]);
+    return await db.update('downloads', download, where: 'assetId = ?', whereArgs: [assetId]);
   }
 
   Future<List<Map<String, dynamic>>> getAllDownloads() async {
@@ -75,15 +75,15 @@ class DatabaseHelper {
     return await db.query('downloads');
   }
 
-  Future<Map<String, dynamic>?> getDownload(String filename) async {
+  Future<Map<String, dynamic>?> getDownload(String assetId) async {
     final db = await database;
-    final results = await db.query('downloads', where: 'filename = ?', whereArgs: [filename]);
+    final results = await db.query('downloads', where: 'assetId = ?', whereArgs: [assetId]);
     return results.isNotEmpty ? results.first : null;
   }
 
-  Future<int> deleteDownload(String filename) async {
+  Future<int> deleteDownload(String assetId) async {
     final db = await database;
-    return await db.delete('downloads', where: 'filename = ?', whereArgs: [filename]);
+    return await db.delete('downloads', where: 'assetId = ?', whereArgs: [assetId]);
   }
 
   Future<int> getCompletedDownloadsCount() async {

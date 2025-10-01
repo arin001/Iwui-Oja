@@ -24,16 +24,20 @@ class _DebugInfoScreenState extends State<DebugInfoScreen> {
 
   Future<void> _loadDebugInfo() async {
     try {
+      debugPrint('=== DEBUG INFO SCREEN LOADING ===');
       // Add basic info
       _addLog('=== DEBUG INFO ===');
       _addLog('Base URL: $baseurl');
       _addLog('Database URL: $databaseUrl');
 
       // Load downloads
+      debugPrint('Loading downloads from database...');
       final downloads = await _dm.getAllDownloads();
+      debugPrint('Found ${downloads.length} downloads in database');
       _addLog('Total downloads in DB: ${downloads.length}');
 
       for (final download in downloads) {
+        debugPrint('Processing download: ${download.assetId}');
         _addLog('Download: ${download.assetId} - ${download.title}');
         _addLog('  Status: ${download.status}');
         _addLog('  Local Path: ${download.localPath}');
@@ -41,6 +45,7 @@ class _DebugInfoScreenState extends State<DebugInfoScreen> {
         if (download.localPath != null) {
           final file = File(download.localPath!);
           final exists = await file.exists();
+          debugPrint('File existence check for ${download.localPath}: $exists');
           _addLog('  File exists: $exists');
           if (exists) {
             final size = await file.length();
